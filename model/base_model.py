@@ -183,7 +183,7 @@ def meta_update(model, model_weights, meta_init_grads, model_alpha, meta_alpha_g
                 meta_init_optimizer, meta_alpha_optimizer):
     ## To be modified
 
-def train_init(model, model_weights, model_alpha, loss_fn, img, lh_img, gt, lh_gt, idx, args):
+ def train_init(model, model_weights, model_alpha, loss_fn, img, lh_img, gt, lh_gt, idx, args):
     
     pred, _, _, _, fea_loss, _, dis_loss = model.forward(img, model_weights, True)
     

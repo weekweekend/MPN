@@ -22,6 +22,7 @@ from collections import OrderedDict
 import copy
 import time
 from model.utils import DataLoader
+from model.utils import VideoDataLoader
 from model.base_model import *
 from sklearn.metrics import roc_auc_score
 from utils import *
@@ -33,14 +34,14 @@ warnings.filterwarnings("ignore")
 
 parser = argparse.ArgumentParser(description="MPN")
 parser.add_argument('--gpus', nargs='+', type=str, help='gpus')
-parser.add_argument('--batch_size', type=int, default=4, help='batch size for training')
+parser.add_argument('--batch_size', type=int, default=1, help='batch size for training')
 parser.add_argument('--test_batch_size', type=int, default=1, help='batch size for test')
 parser.add_argument('--epochs', type=int, default=1000, help='number of epochs for training')
 parser.add_argument('--loss_fra_reconstruct', type=float, default=1.00, help='weight of the frame reconstruction loss')
 parser.add_argument('--loss_fea_reconstruct', type=float, default=1.00, help='weight of the feature reconstruction loss')
 parser.add_argument('--loss_distinguish', type=float, default=0.0001, help='weight of the feature distinction loss')
-parser.add_argument('--h', type=int, default=256, help='height of input images')
-parser.add_argument('--w', type=int, default=256, help='width of input images')
+parser.add_argument('--h', type=int, default=576, help='height of input images')
+parser.add_argument('--w', type=int, default=768, help='width of input images')
 parser.add_argument('--c', type=int, default=3, help='channel of input images')
 parser.add_argument('--lr_D', type=float, default=1e-4, help='initial learning rate for parameters')
 parser.add_argument('--t_length', type=int, default=5, help='length of the frame sequences')
@@ -51,30 +52,37 @@ parser.add_argument('--psize', type=int, default=10, help='number of the prototy
 parser.add_argument('--alpha', type=float, default=0.6, help='weight for the anomality score')
 parser.add_argument('--num_workers', type=int, default=8, help='number of workers for the train loader')
 parser.add_argument('--num_workers_test', type=int, default=8, help='number of workers for the test loader')
-parser.add_argument('--dataset_type', type=str, default='ped2', help='type of dataset: ped2, avenue, shanghai')
-parser.add_argument('--dataset_path', type=str, default='.data/', help='directory of data')
-parser.add_argument('--exp_dir', type=str, default='log', help='directory of log')
+parser.add_argument('--dataset_type', type=str, default='shanghai', help='type of dataset: ped2, avenue, shanghai')
+parser.add_argument('--dataset_path', type=str, default='data/', help='directory of data')
+parser.add_argument('--exp_dir', type=str, default='train_2_small_bs1', help='directory of log')
 parser.add_argument('--resume', type=str, default='exp/ped2/example.pth', help='file path of resume pth')
 parser.add_argument('--debug', type=bool, default=False, help='if debug')
 args = parser.parse_args()
 
+print('训练参数：')
+print(str(args).replace(',','\n').replace('Namespace(',' ').replace(')','').replace('=',' = ') + '\n')
+
 torch.manual_seed(2020)
 
-os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-if args.gpus is None:
-    gpus = "0"
-    os.environ["CUDA_VISIBLE_DEVICES"]= gpus
-else:
-    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpus[0]
+# os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+# if args.gpus is None:
+#     gpus = 1
+#     os.environ["CUDA_VISIBLE_DEVICES"]= gpus
+# else:
+#     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpus[0]
 
 torch.backends.cudnn.enabled = True # make sure to use cudnn for computational performance
 
-train_folder = args.dataset_path+args.dataset_type+"/training/frames"
-
+train_folder = args.dataset_path+args.dataset_type+"/train_2_small/frames"
 # Loading dataset
 train_dataset = VideoDataLoader(train_folder, args.dataset_type, transforms.Compose([
              transforms.ToTensor(),           
              ]), resize_height=args.h, resize_width=args.w, time_step=args.t_length-1, segs=args.segs, batch_size=args.batch_size)
+
+
+
+print('训练数据：')
+print(str(sorted(os.listdir(train_folder))).replace(',','\n').replace('[',' ').replace(']','')+ '\n')
 
 
 train_size = len(train_dataset)
@@ -107,8 +115,8 @@ if os.path.exists(args.resume):
   optimizer_D.load_state_dict(checkpoint['optimizer_D'])
 
 
-if len(args.gpus[0])>1:
-  model = nn.DataParallel(model)
+# if len(args.gpus[0])>1:
+#   model = nn.DataParallel(model)
 
 # Report the training process
 log_dir = os.path.join('./exp', args.dataset_type, args.exp_dir)
@@ -177,10 +185,10 @@ for epoch in range(start_epoch, args.epochs):
     # Save the model
     if epoch%100==0:
       
-      if len(args.gpus[0])>1:
-        model_save = model.module
-      else:
-        model_save = model
+      # if len(args.gpus[0])>1:
+      #   model_save = model.module
+      # else:
+      model_save = model
         
       state = {
             'epoch': epoch,

@@ -31,15 +31,32 @@ from tqdm import tqdm
 import argparse
 import pdb
 import warnings
-import time
+ 
+def dismap(x, name='sh'):
+    
+    x = x.data.cpu().numpy()
+    x = x.mean(1)
+    for j in range(x.shape[0]):
+        plt.cla()
+        y = x[j]
+        df = pd.DataFrame(y)
+        sns.heatmap(df)
+        plt.savefig('results/dismap/{}_{}.png'.format(name,str(int(time.time()))))
+        plt.close()
+    return True
+
+
 warnings.filterwarnings("ignore") 
+
+# 384 * 512 bs 3
+# 576 * 768 bs 1
 
 parser = argparse.ArgumentParser(description="MPN")
 parser.add_argument('--gpus', nargs='+', type=str, help='gpus')
 parser.add_argument('--batch_size', type=int, default=1, help='batch size for training')
 parser.add_argument('--test_batch_size', type=int, default=1, help='batch size for test')
-parser.add_argument('--h', type=int, default=256, help='height of input images')
-parser.add_argument('--w', type=int, default=256, help='width of input images')
+parser.add_argument('--h', type=int, default=384, help='height of input images')
+parser.add_argument('--w', type=int, default=512, help='width of input images')
 parser.add_argument('--c', type=int, default=3, help='channel of input images')
 parser.add_argument('--t_length', type=int, default=5, help='length of the frame sequences')
 parser.add_argument('--fdim', type=list, default=[128], help='channel dimension of the features')
@@ -50,17 +67,21 @@ parser.add_argument('--K_hots', type=int, default=0, help='number of the K hots'
 parser.add_argument('--alpha', type=float, default=0.5, help='weight for the anomality score')
 parser.add_argument('--th', type=float, default=0.01, help='threshold for test updating')
 parser.add_argument('--num_workers_test', type=int, default=8, help='number of workers for the test loader')
-parser.add_argument('--dataset_type', type=str, default='ped2', help='type of dataset: ped2, avenue, shanghai')
+parser.add_argument('--dataset_type', type=str, default='shanghai', help='type of dataset: ped2, avenue, shanghai')
 parser.add_argument('--dataset_path', type=str, default='data/', help='directory of data')
-parser.add_argument('--model_dir', type=str, help='directory of model')
+parser.add_argument('--model_dir', type=str, default='exp/shanghai/train_2_small_bs3/model_700.pth',help='directory of model')
 
 args = parser.parse_args()
 
 torch.manual_seed(2020)
 
+# 若结果图存储地址不存在则创建
+if not os.path.isdir('results/dismap'):
+    os.mkdir('results/dismap')
+
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 if args.gpus is None:
-    gpus = "0"
+    gpus = "1"
     os.environ["CUDA_VISIBLE_DEVICES"]= gpus
 else:
     gpus = ""
@@ -70,7 +91,8 @@ else:
 
 torch.backends.cudnn.enabled = True # make sure to use cudnn for computational performance
 
-test_folder = args.dataset_path+args.dataset_type+"/testing/frames"
+# 测试数据具体地址
+test_folder = args.dataset_path+args.dataset_type+"/test_1/frames"
 
 # Loading dataset
 test_dataset = DataLoader(test_folder, transforms.Compose([
@@ -95,6 +117,7 @@ if 'SHTech' in args.dataset_type or 'ped1' in args.dataset_type:
 
 videos = OrderedDict()
 videos_list = sorted(glob.glob(os.path.join(test_folder, '*')))
+print(videos_list)
 
 for video in videos_list:
     video_name = video.split('/')[-1]
@@ -103,6 +126,7 @@ for video in videos_list:
     videos[video_name]['frame'] = glob.glob(os.path.join(video, '*.jpg'))
     videos[video_name]['frame'].sort()
     videos[video_name]['length'] = len(videos[video_name]['frame'])
+print(videos)
 
 labels_list = []
 anomaly_score_total_list = []
@@ -123,15 +147,15 @@ psnr_dir = args.model_dir.replace('exp','results')
 # Setting for video anomaly detection
 for video in sorted(videos_list):
     video_name = video.split('/')[-1]
-    videos[video_name]['labels'] = labels[0][4+label_length:videos[video_name]['length']+label_length]
-    labels_list = np.append(labels_list, labels[0][args.t_length+args.K_hots-1+label_length:videos[video_name]['length']+label_length])
+    # videos[video_name]['labels'] = labels[0][4+label_length:videos[video_name]['length']+label_length]
+    # labels_list = np.append(labels_list, labels[0][args.t_length+args.K_hots-1+label_length:videos[video_name]['length']+label_length])
     label_length += videos[video_name]['length']
     psnr_list[video_name] = []
     feature_distance_list[video_name] = []
 
 
-if not os.path.isdir(psnr_dir):
-    os.mkdir(psnr_dir)
+# if not os.path.isdir(psnr_dir):
+#     os.mkdir(psnr_dir)
 
 ckpt = snapshot_path
 ckpt_name = ckpt.split('_')[-1]
@@ -164,7 +188,7 @@ with torch.no_grad():
         imgs = Variable(imgs).cuda()
         
         start_t = time.time()
-        outputs, feas, _, _, _, fea_loss = model.forward(imgs[:,:3*4], update_weights, False)
+        outputs, fea_loss = model.forward(imgs[:,:3*4], update_weights, False)
         end_t = time.time()
         
         if k>=len(test_batch)//2:
@@ -175,11 +199,21 @@ with torch.no_grad():
 
         mse_feas = fea_loss.mean(-1)
         
-        mse_feas = mse_feas.reshape((-1,1,256,256))
+        mse_feas = mse_feas.reshape((-1,1,args.h,args.w))
+
+        aaaa = mse_imgs
         mse_imgs = mse_imgs.view((mse_imgs.shape[0],-1))
         mse_imgs = mse_imgs.mean(-1)
+
+        bb = mse_feas
         mse_feas = mse_feas.view((mse_feas.shape[0],-1))
         mse_feas = mse_feas.mean(-1)
+
+        # 存储热力图
+        dismap(aaaa)
+
+
+
         # import pdb;pdb.set_trace()
         vid = video_num
         vdd = video_num if args.dataset_type != 'avenue' else 0
@@ -211,15 +245,16 @@ forward_time.reset()
 for video in sorted(videos_list):
     video_name = video.split('/')[-1]
     template = calc(15, 2)
+
     aa = filter(anomaly_score_list(psnr_list[video_name]), template, 15)
     bb = filter(anomaly_score_list(feature_distance_list[video_name]), template, 15)
     anomaly_score_total_list += score_sum(aa, bb, args.alpha)
 
 anomaly_score_total = np.asarray(anomaly_score_total_list)
-accuracy_total = 100*AUC(anomaly_score_total, np.expand_dims(1-labels_list, 0))
+# accuracy_total = 100*AUC(anomaly_score_total, np.expand_dims(1-labels_list, 0))
 
 print('The result of Version {0} Epoch {1} on {2}'.format(psnr_dir.split('/')[-1], ckpt_name, args.dataset_type))
-print('Total AUC: {:.4f}%'.format(accuracy_total))
+print('Total AUC: {:.4f}%'.format(888))
 
 
 
